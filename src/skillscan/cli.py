@@ -11,6 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from skillscan.alerts import send_slack, send_teams
 from skillscan.allowlist import Allowlist, evaluate as evaluate_allowlist
 from skillscan.collusion import analyze as analyze_collusion
 from skillscan.dashboard import generate_dashboard_html
@@ -104,11 +105,20 @@ def _build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="Enrich findings with marketplace reputation lookups",
             )
+            cmd.add_argument("--alert-slack", help="Slack incoming-webhook URL to post findings to")
+            cmd.add_argument("--alert-teams", help="MS Teams incoming-webhook URL to post findings to")
+            cmd.add_argument(
+                "--alert-threshold",
+                choices=("critical", "high", "medium", "low"),
+                default="high",
+                help="Minimum severity to alert on (default: high)",
+            )
 
     dash = sub.add_parser("dashboard", help="Render the executive HTML dashboard for a scan")
     dash.add_argument("path", nargs="?", default=".", help="Project root to scan (default: cwd)")
     dash.add_argument("--output", required=True, help="Write HTML to this file")
     dash.add_argument("--no-user-global", action="store_true", help="Skip ~/.claude/, ~/.cursor/, etc.")
+    dash.add_argument("--db", help=f"SQLite baseline DB to draw the drift trend from (default: {default_db_path()})")
 
     return parser
 
@@ -175,6 +185,12 @@ def _do_scan(args: argparse.Namespace) -> int:
         allowlist = Allowlist.from_file(Path(args.allowlist))
         result.findings.extend(evaluate_allowlist(result.artifacts, allowlist))
 
+    threshold = getattr(args, "alert_threshold", "high")
+    if getattr(args, "alert_slack", None):
+        send_slack(args.alert_slack, result, threshold=threshold)
+    if getattr(args, "alert_teams", None):
+        send_teams(args.alert_teams, result, threshold=threshold)
+
     if getattr(args, "baseline", False) or getattr(args, "save_baseline", False):
         db_path = Path(args.db) if args.db else default_db_path()
         conn = open_db(db_path)
@@ -223,7 +239,11 @@ def _do_dashboard(args: argparse.Namespace) -> int:
     result = _discover(scan_root)
     result.findings.extend(run_rules(result.artifacts))
     result.findings.extend(analyze_collusion(result.artifacts, result.findings))
-    Path(args.output).write_text(generate_dashboard_html(result), encoding="utf-8")
+    db_path = Path(args.db) if args.db else default_db_path()
+    Path(args.output).write_text(
+        generate_dashboard_html(result, baseline_db=db_path, scan_root=str(scan_root)),
+        encoding="utf-8",
+    )
     return 0
 
 

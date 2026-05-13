@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skills-scanner"
+version = "0.1.0"
+description = "Security scanner for AI agent skills, MCP servers, and harness configs (Claude / Cursor / Windsurf / Codex / Gemini)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "HTS Consulting" }
+]
+license = { text = "Apache-2.0" }
+keywords = ["ai-security", "aspm", "claude-skills", "mcp", "agent-security", "owasp", "prompt-injection"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Security",
+  "Development Status :: 3 :: Alpha",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/HTS-ASPM/skills-scanner"
+Repository = "https://github.com/HTS-ASPM/skills-scanner"
+Issues = "https://github.com/HTS-ASPM/skills-scanner/issues"
+
+[project.scripts]
+skillscan = "skillscan.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

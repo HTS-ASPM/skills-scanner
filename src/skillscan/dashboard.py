@@ -10,11 +10,13 @@ from __future__ import annotations
 import html
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 
 from skillscan.models import ScanResult
+from skillscan.visualizer import render_mcp_graph_svg, render_trend_svg
 
 
-def generate_dashboard_html(result: ScanResult) -> str:
+def generate_dashboard_html(result: ScanResult, *, baseline_db: Path | None = None, scan_root: str | None = None) -> str:
     parts: list[str] = [_HEAD]
     parts.append("<header>")
     parts.append("<h1>Skills Scanner — Executive Dashboard</h1>")
@@ -35,10 +37,23 @@ def generate_dashboard_html(result: ScanResult) -> str:
     parts.append(_severity_block(result))
     parts.append(_top_rules_block(result))
     parts.append(_artifact_breakdown_block(result))
+    if baseline_db and scan_root:
+        parts.append(_drift_trend_block(baseline_db, scan_root))
+    parts.append(_mcp_graph_block(result))
     parts.append(_critical_findings_block(result))
 
     parts.append(_FOOT)
     return "".join(parts)
+
+
+def _drift_trend_block(db_path: Path, scan_root: str) -> str:
+    svg = render_trend_svg(db_path, scan_root)
+    return "<section><h2>Drift trend</h2>" + svg + "</section>"
+
+
+def _mcp_graph_block(result: ScanResult) -> str:
+    svg = render_mcp_graph_svg(result.artifacts)
+    return "<section><h2>Skill ↔ MCP ↔ tool graph</h2>" + svg + "</section>"
 
 
 # --------------------------------------------------------------------------- #

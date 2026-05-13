@@ -11,6 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from skillscan.collusion import analyze as analyze_collusion
 from skillscan.discover import (
     discover_claude_harness,
     discover_claude_skills,
@@ -136,6 +137,7 @@ def _do_scan(args: argparse.Namespace) -> int:
         return 2
     result = _discover(scan_root)
     result.findings.extend(run_rules(result.artifacts, with_judge=getattr(args, "judge", False)))
+    result.findings.extend(analyze_collusion(result.artifacts, result.findings))
 
     if getattr(args, "baseline", False) or getattr(args, "save_baseline", False):
         db_path = Path(args.db) if args.db else default_db_path()

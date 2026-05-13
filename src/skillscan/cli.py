@@ -19,6 +19,14 @@ from skillscan.discover import (
 from skillscan.models import ScanResult
 from skillscan.reporters import to_json, to_markdown, to_sarif
 from skillscan.rules import run_rules
+from skillscan.rules.drift import findings_for_drift
+from skillscan.store import (
+    default_db_path,
+    diff_against_baseline,
+    latest_baseline,
+    open_db,
+    save_baseline,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -30,7 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     for name, help_text in (
         ("inventory", "Discover skills, MCP servers, and harness configs (no rules)"),
-        ("scan", "Discover + run rule engine (S1 Tier-0 detection)"),
+        ("scan", "Discover + run rule engine (Tier-0 + capability + drift)"),
     ):
         cmd = sub.add_parser(name, help=help_text)
         cmd.add_argument("path", nargs="?", default=".", help="Project root to scan (default: cwd)")
@@ -51,6 +59,26 @@ def _build_parser() -> argparse.ArgumentParser:
             choices=("critical", "high", "medium", "low"),
             help="Exit non-zero if any finding meets/exceeds this severity",
         )
+        if name == "scan":
+            cmd.add_argument(
+                "--baseline",
+                action="store_true",
+                help="Compare against the most recent saved baseline and emit drift findings",
+            )
+            cmd.add_argument(
+                "--save-baseline",
+                action="store_true",
+                help="Save the current artifact set as a new baseline after scanning",
+            )
+            cmd.add_argument(
+                "--db",
+                help=f"SQLite baseline DB (default: {default_db_path()})",
+            )
+            cmd.add_argument(
+                "--judge",
+                action="store_true",
+                help="Enable optional NL judge (requires ANTHROPIC_API_KEY + anthropic package)",
+            )
 
     return parser
 
@@ -107,7 +135,22 @@ def _do_scan(args: argparse.Namespace) -> int:
         print(f"error: {scan_root} does not exist", file=sys.stderr)
         return 2
     result = _discover(scan_root)
-    result.findings.extend(run_rules(result.artifacts))
+    result.findings.extend(run_rules(result.artifacts, with_judge=getattr(args, "judge", False)))
+
+    if getattr(args, "baseline", False) or getattr(args, "save_baseline", False):
+        db_path = Path(args.db) if args.db else default_db_path()
+        conn = open_db(db_path)
+        try:
+            if args.baseline:
+                baseline = latest_baseline(conn, str(scan_root))
+                if baseline:
+                    signals = diff_against_baseline(result.artifacts, baseline)
+                    result.findings.extend(findings_for_drift(signals))
+            if args.save_baseline:
+                save_baseline(conn, str(scan_root), result.artifacts)
+        finally:
+            conn.close()
+
     _emit(_render(result, args.format), args.output)
     return _exit_code_for(result, args.fail_on)
 

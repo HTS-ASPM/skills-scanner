@@ -1,12 +1,21 @@
-"""Rule layer: applies detectors to discovered artifacts.
+"""Rule layer: dispatches every artifact through every applicable rule module.
 
-Phase S0 ships the discovery + parsers only; rules land in S1.
-This package exists so downstream code can already import from a stable path.
+Phase S1 ships five rule modules. Each exports a `run(artifact) -> list[Finding]`.
+Adding a new module is just appending to `_MODULES` below.
 """
 
+from __future__ import annotations
+
 from skillscan.models import Artifact, Finding
+from skillscan.rules import frontmatter, hidden, mcp, secrets, static
+
+
+_MODULES = [frontmatter, hidden, secrets, static, mcp]
 
 
 def run_rules(artifacts: list[Artifact]) -> list[Finding]:
-    """No rules wired yet — placeholder for the S1 rule engine."""
-    return []
+    findings: list[Finding] = []
+    for artifact in artifacts:
+        for module in _MODULES:
+            findings.extend(module.run(artifact))
+    return findings

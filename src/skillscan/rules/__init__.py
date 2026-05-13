@@ -14,6 +14,7 @@ from skillscan.models import Artifact, Finding
 from skillscan.rules import (
     capability,
     deep_scan,
+    deep_scan_js,
     frontmatter,
     hidden,
     mcp,
@@ -23,7 +24,7 @@ from skillscan.rules import (
 )
 
 
-_MODULES = [frontmatter, hidden, secrets, static, mcp, capability, deep_scan]
+_MODULES = [frontmatter, hidden, secrets, static, mcp, capability, deep_scan, deep_scan_js]
 
 
 def run_rules(artifacts: list[Artifact], *, with_judge: bool = False) -> list[Finding]:

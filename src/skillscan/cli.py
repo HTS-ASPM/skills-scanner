@@ -11,13 +11,16 @@ import argparse
 import sys
 from pathlib import Path
 
+from skillscan.allowlist import Allowlist, evaluate as evaluate_allowlist
 from skillscan.collusion import analyze as analyze_collusion
+from skillscan.dashboard import generate_dashboard_html
 from skillscan.discover import (
     discover_claude_harness,
     discover_claude_skills,
     discover_mcp_servers,
 )
 from skillscan.fleet import AgentConfig, run_loop, run_once
+from skillscan.marketplace import enrich_with_reputation, load_registry
 from skillscan.models import ScanResult
 from skillscan.reporters import to_json, to_markdown, to_sarif
 from skillscan.rules import run_rules
@@ -92,6 +95,20 @@ def _build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="Enable optional NL judge (requires ANTHROPIC_API_KEY + anthropic package)",
             )
+            cmd.add_argument(
+                "--allowlist",
+                help="JSON allowlist policy file — emits findings for non-allowlisted skills/MCPs",
+            )
+            cmd.add_argument(
+                "--reputation",
+                action="store_true",
+                help="Enrich findings with marketplace reputation lookups",
+            )
+
+    dash = sub.add_parser("dashboard", help="Render the executive HTML dashboard for a scan")
+    dash.add_argument("path", nargs="?", default=".", help="Project root to scan (default: cwd)")
+    dash.add_argument("--output", required=True, help="Write HTML to this file")
+    dash.add_argument("--no-user-global", action="store_true", help="Skip ~/.claude/, ~/.cursor/, etc.")
 
     return parser
 
@@ -151,6 +168,13 @@ def _do_scan(args: argparse.Namespace) -> int:
     result.findings.extend(run_rules(result.artifacts, with_judge=getattr(args, "judge", False)))
     result.findings.extend(analyze_collusion(result.artifacts, result.findings))
 
+    if getattr(args, "reputation", False):
+        result.findings.extend(enrich_with_reputation(result.artifacts, registry=load_registry()))
+
+    if getattr(args, "allowlist", None):
+        allowlist = Allowlist.from_file(Path(args.allowlist))
+        result.findings.extend(evaluate_allowlist(result.artifacts, allowlist))
+
     if getattr(args, "baseline", False) or getattr(args, "save_baseline", False):
         db_path = Path(args.db) if args.db else default_db_path()
         conn = open_db(db_path)
@@ -191,6 +215,18 @@ def _do_agent(args: argparse.Namespace) -> int:
     return 0
 
 
+def _do_dashboard(args: argparse.Namespace) -> int:
+    scan_root = Path(args.path).resolve()
+    if not scan_root.exists():
+        print(f"error: {scan_root} does not exist", file=sys.stderr)
+        return 2
+    result = _discover(scan_root)
+    result.findings.extend(run_rules(result.artifacts))
+    result.findings.extend(analyze_collusion(result.artifacts, result.findings))
+    Path(args.output).write_text(generate_dashboard_html(result), encoding="utf-8")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -200,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         return _do_scan(args)
     if args.command == "agent":
         return _do_agent(args)
+    if args.command == "dashboard":
+        return _do_dashboard(args)
     parser.print_help()
     return 1
 

@@ -17,6 +17,7 @@ from skillscan.discover import (
     discover_claude_skills,
     discover_mcp_servers,
 )
+from skillscan.fleet import AgentConfig, run_loop, run_once
 from skillscan.models import ScanResult
 from skillscan.reporters import to_json, to_markdown, to_sarif
 from skillscan.rules import run_rules
@@ -36,6 +37,17 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Security scanner for AI agent skills, MCP servers, and harness configs",
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    agent = sub.add_parser("agent", help="Background fleet agent: periodic scan + post to ASPM / SIEM")
+    agent.add_argument("--aspm-url", required=True, help="HTS-ASPM ingest endpoint")
+    agent.add_argument("--scan-root", default=str(Path.home()), help="Directory to scan (default: $HOME)")
+    agent.add_argument("--interval", type=int, default=3600, help="Seconds between iterations (default: 3600)")
+    agent.add_argument("--once", action="store_true", help="Run a single iteration and exit")
+    agent.add_argument("--iterations", type=int, help="Stop after N iterations (default: unbounded)")
+    agent.add_argument("--token-env", default="ASPM_TOKEN", help="Env var holding the ASPM bearer token")
+    agent.add_argument("--host-id", help="Identifier sent in X-Skillscan-Host (defaults to hostname)")
+    agent.add_argument("--siem", choices=("splunk", "elastic", "sentinel"), help="Optionally mirror findings to a SIEM")
+    agent.add_argument("--siem-url", help="SIEM ingest URL when --siem is set")
 
     for name, help_text in (
         ("inventory", "Discover skills, MCP servers, and harness configs (no rules)"),
@@ -157,6 +169,28 @@ def _do_scan(args: argparse.Namespace) -> int:
     return _exit_code_for(result, args.fail_on)
 
 
+def _do_agent(args: argparse.Namespace) -> int:
+    import socket
+
+    config = AgentConfig(
+        aspm_url=args.aspm_url,
+        scan_root=Path(args.scan_root).resolve(),
+        interval_seconds=args.interval,
+        iterations=1 if args.once else args.iterations,
+        aspm_token_env=args.token_env,
+        host_id=args.host_id or socket.gethostname(),
+        siem_format=args.siem,
+        siem_url=args.siem_url,
+    )
+    if args.once or args.iterations == 1:
+        result = run_once(config)
+        print(f"agent: 1 iteration — {result.findings} findings, posted={result.posted}, error={result.error}")
+        return 0 if result.posted else 4
+    results = run_loop(config)
+    print(f"agent: {len(results)} iterations completed")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -164,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         return _do_inventory(args)
     if args.command == "scan":
         return _do_scan(args)
+    if args.command == "agent":
+        return _do_agent(args)
     parser.print_help()
     return 1
 

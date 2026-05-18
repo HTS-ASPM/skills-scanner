@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from skillscan.alerts import send_slack, send_teams
+from skillscan.alerts import send_opsgenie, send_pagerduty, send_slack, send_teams
 from skillscan.allowlist import Allowlist, evaluate as evaluate_allowlist
 from skillscan.collusion import analyze as analyze_collusion
 from skillscan.dashboard import generate_dashboard_html
@@ -108,6 +108,31 @@ def _build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--alert-slack", help="Slack incoming-webhook URL to post findings to")
             cmd.add_argument("--alert-teams", help="MS Teams incoming-webhook URL to post findings to")
             cmd.add_argument(
+                "--alert-pagerduty",
+                action="store_true",
+                help="Send findings to PagerDuty (uses PAGERDUTY_ROUTING_KEY env var)",
+            )
+            cmd.add_argument(
+                "--pagerduty-key-env",
+                default="PAGERDUTY_ROUTING_KEY",
+                help="Env var holding the PagerDuty Events v2 routing key",
+            )
+            cmd.add_argument(
+                "--alert-opsgenie",
+                action="store_true",
+                help="Send findings to Opsgenie (uses OPSGENIE_API_KEY env var)",
+            )
+            cmd.add_argument(
+                "--opsgenie-key-env",
+                default="OPSGENIE_API_KEY",
+                help="Env var holding the Opsgenie API key",
+            )
+            cmd.add_argument(
+                "--opsgenie-api-base",
+                default="https://api.opsgenie.com",
+                help="Opsgenie API base URL (use https://api.eu.opsgenie.com for EU region)",
+            )
+            cmd.add_argument(
                 "--alert-threshold",
                 choices=("critical", "high", "medium", "low"),
                 default="high",
@@ -190,6 +215,15 @@ def _do_scan(args: argparse.Namespace) -> int:
         send_slack(args.alert_slack, result, threshold=threshold)
     if getattr(args, "alert_teams", None):
         send_teams(args.alert_teams, result, threshold=threshold)
+    if getattr(args, "alert_pagerduty", False):
+        send_pagerduty(result, key_env=args.pagerduty_key_env, threshold=threshold)
+    if getattr(args, "alert_opsgenie", False):
+        send_opsgenie(
+            result,
+            key_env=args.opsgenie_key_env,
+            api_base=args.opsgenie_api_base,
+            threshold=threshold,
+        )
 
     if getattr(args, "baseline", False) or getattr(args, "save_baseline", False):
         db_path = Path(args.db) if args.db else default_db_path()

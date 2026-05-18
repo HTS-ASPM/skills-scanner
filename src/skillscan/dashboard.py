@@ -13,10 +13,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from skillscan.models import ScanResult
-from skillscan.visualizer import render_mcp_graph_svg, render_trend_svg
+from skillscan.visualizer import (
+    build_timeline,
+    render_interactive_graph_html,
+    render_mcp_graph_svg,
+    render_timeline_html,
+    render_trend_svg,
+)
 
 
-def generate_dashboard_html(result: ScanResult, *, baseline_db: Path | None = None, scan_root: str | None = None) -> str:
+def generate_dashboard_html(
+    result: ScanResult,
+    *,
+    baseline_db: Path | None = None,
+    scan_root: str | None = None,
+    interactive_graph: bool = True,
+) -> str:
     parts: list[str] = [_HEAD]
     parts.append("<header>")
     parts.append("<h1>Skills Scanner — Executive Dashboard</h1>")
@@ -39,7 +51,8 @@ def generate_dashboard_html(result: ScanResult, *, baseline_db: Path | None = No
     parts.append(_artifact_breakdown_block(result))
     if baseline_db and scan_root:
         parts.append(_drift_trend_block(baseline_db, scan_root))
-    parts.append(_mcp_graph_block(result))
+    parts.append(_mcp_graph_block(result, interactive=interactive_graph))
+    parts.append(_timeline_block(result, baseline_db=baseline_db, scan_root=scan_root))
     parts.append(_critical_findings_block(result))
 
     parts.append(_FOOT)
@@ -51,9 +64,17 @@ def _drift_trend_block(db_path: Path, scan_root: str) -> str:
     return "<section><h2>Drift trend</h2>" + svg + "</section>"
 
 
-def _mcp_graph_block(result: ScanResult) -> str:
-    svg = render_mcp_graph_svg(result.artifacts)
-    return "<section><h2>Skill ↔ MCP ↔ tool graph</h2>" + svg + "</section>"
+def _mcp_graph_block(result: ScanResult, *, interactive: bool = True) -> str:
+    if interactive:
+        body = render_interactive_graph_html(result.artifacts)
+    else:
+        body = render_mcp_graph_svg(result.artifacts)
+    return "<section><h2>Skill ↔ MCP ↔ tool graph</h2>" + body + "</section>"
+
+
+def _timeline_block(result: ScanResult, *, baseline_db: Path | None = None, scan_root: str | None = None) -> str:
+    events = build_timeline(result, baseline_db=baseline_db, scan_root=scan_root)
+    return "<section><h2>Incident timeline</h2>" + render_timeline_html(events) + "</section>"
 
 
 # --------------------------------------------------------------------------- #
